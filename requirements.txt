@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pymongo[srv]
+python-multipart
+python-dotenv
+Pillow
+torch
+transformers
+numpy
