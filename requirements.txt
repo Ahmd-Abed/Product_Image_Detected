@@ -1,9 +1,10 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
 fastapi
 uvicorn[standard]
 pymongo[srv]
 python-multipart
 python-dotenv
 Pillow
-torch
+torch==2.3.1+cpu
 transformers
 numpy

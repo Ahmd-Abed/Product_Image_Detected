@@ -10,6 +10,8 @@ from math import ceil
 import numpy as np
 import torch
 
+torch.set_num_threads(1)
+
 from bson.binary import Binary
 from dotenv import load_dotenv
 from fastapi import (
@@ -65,20 +67,30 @@ if not MONGODB_URI:
 
 MODEL_NAME = "openai/clip-vit-base-patch32"
 
-print("Loading CLIP model...")
+processor = None
+clip_model = None
 
-processor = AutoProcessor.from_pretrained(
-    MODEL_NAME
-)
 
-clip_model = (
-    CLIPVisionModelWithProjection
-    .from_pretrained(MODEL_NAME)
-)
+def load_model():
+    global processor, clip_model
 
-clip_model.eval()
+    if processor is None or clip_model is None:
+        print("Loading CLIP model...")
 
-print("CLIP model loaded.")
+        processor = AutoProcessor.from_pretrained(
+            MODEL_NAME
+        )
+
+        clip_model = (
+            CLIPVisionModelWithProjection
+            .from_pretrained(MODEL_NAME)
+        )
+
+        clip_model.eval()
+
+        print("CLIP model loaded.")
+
+    return processor, clip_model
 
 
 def create_image_embedding(
@@ -89,6 +101,8 @@ def create_image_embedding(
     Convert an image to a normalized
     512-dimensional CLIP embedding.
     """
+
+    processor, clip_model = load_model()
 
     try:
         image = Image.open(
