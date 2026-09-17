@@ -8,9 +8,6 @@ from datetime import datetime, timezone
 from bson import ObjectId
 from math import ceil
 import numpy as np
-import torch
-
-torch.set_num_threads(1)
 
 from bson.binary import Binary
 from dotenv import load_dotenv
@@ -29,10 +26,6 @@ from PIL import Image, UnidentifiedImageError
 from pymongo import AsyncMongoClient
 from pymongo.server_api import ServerApi
 from starlette.concurrency import run_in_threadpool
-from transformers import (
-    AutoProcessor,
-    CLIPVisionModelWithProjection,
-)
 
 
 # =========================================================
@@ -62,35 +55,11 @@ if not MONGODB_URI:
 
 
 # =========================================================
-# AI MODEL
+# IMAGE FINGERPRINT
 # =========================================================
 
-MODEL_NAME = "openai/clip-vit-base-patch32"
-
-processor = None
-clip_model = None
-
-
-def load_model():
-    global processor, clip_model
-
-    if processor is None or clip_model is None:
-        print("Loading CLIP model...")
-
-        processor = AutoProcessor.from_pretrained(
-            MODEL_NAME
-        )
-
-        clip_model = (
-            CLIPVisionModelWithProjection
-            .from_pretrained(MODEL_NAME)
-        )
-
-        clip_model.eval()
-
-        print("CLIP model loaded.")
-
-    return processor, clip_model
+EMBEDDING_MODEL = "rgb-histogram-512-v1"
+MODEL_NAME = EMBEDDING_MODEL
 
 
 def create_image_embedding(
@@ -98,11 +67,9 @@ def create_image_embedding(
 ) -> list[float]:
 
     """
-    Convert an image to a normalized
-    512-dimensional CLIP embedding.
+    Convert an image to a normalized 512-dimensional color fingerprint.
+    This keeps Render free deployments under the 512 MB memory limit.
     """
-
-    processor, clip_model = load_model()
 
     try:
         image = Image.open(
@@ -114,33 +81,30 @@ def create_image_embedding(
             "Invalid image file"
         )
 
-    inputs = processor(
-        images=image,
-        return_tensors="pt",
+    image.thumbnail(
+        (256, 256)
     )
 
-    with torch.inference_mode():
-
-        outputs = clip_model(
-            **inputs
-        )
-
-        embedding = outputs.image_embeds
-
-        # L2 normalization
-        embedding = embedding / embedding.norm(
-            p=2,
-            dim=-1,
-            keepdim=True,
-        )
-
-    vector = (
-        embedding[0]
-        .cpu()
-        .numpy()
-        .astype(np.float32)
-        .tolist()
+    pixels = (
+        np.asarray(image, dtype=np.uint8)
+        .reshape(-1, 3)
     )
+
+    histogram, _ = np.histogramdd(
+        pixels,
+        bins=(8, 8, 8),
+        range=((0, 256), (0, 256), (0, 256)),
+    )
+
+    embedding = histogram.flatten().astype(np.float32)
+    norm = np.linalg.norm(embedding)
+
+    if norm == 0:
+        raise ValueError(
+            "Invalid image file"
+        )
+
+    vector = (embedding / norm).tolist()
 
     return vector
 
@@ -361,6 +325,8 @@ async def add_product(
 
         "embedding": embedding,
 
+        "embedding_model": EMBEDDING_MODEL,
+
         "created_at":
             datetime.now(timezone.utc),
     }
@@ -461,7 +427,9 @@ async def get_product_by_image(
         .find(
             {},
             {
-                "embedding": 1
+                "embedding": 1,
+                "embedding_model": 1,
+                "image": 1,
             }
         )
     )
@@ -474,6 +442,41 @@ async def get_product_by_image(
         stored_embedding = document.get(
             "embedding"
         )
+
+        if (
+            document.get("embedding_model")
+            != EMBEDDING_MODEL
+            or not stored_embedding
+        ):
+            image_data = document.get("image")
+
+            if not image_data:
+                continue
+
+            try:
+                stored_embedding = await run_in_threadpool(
+                    create_image_embedding,
+                    bytes(image_data),
+                )
+
+            except ValueError:
+                continue
+
+            await (
+                request
+                .app
+                .state
+                .products
+                .update_one(
+                    {"_id": document["_id"]},
+                    {
+                        "$set": {
+                            "embedding": stored_embedding,
+                            "embedding_model": EMBEDDING_MODEL,
+                        }
+                    },
+                )
+            )
 
         if not stored_embedding:
             continue
@@ -806,7 +809,7 @@ async def edit_product(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         fields.update(image=Binary(image_bytes), image_content_type=image.content_type,
-                      embedding=embedding)
+                      embedding=embedding, embedding_model=EMBEDDING_MODEL)
     fields["updated_at"] = datetime.now(timezone.utc)
     result = await collection.update_one(query, {"$set": fields})
     if result.matched_count == 0:

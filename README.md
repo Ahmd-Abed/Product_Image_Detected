@@ -1,4 +1,4 @@
-# Basra — product visual search
+# Basra - product visual search
 
 Responsive Arabic/English web UI served by the existing FastAPI application. Arabic and RTL are the default; a language selection is remembered on the device.
 
@@ -9,9 +9,9 @@ Responsive Arabic/English web UI served by the existing FastAPI application. Ara
 .venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Open **http://localhost:8000**. Keep the existing `.env` with `MONGODB_URI`; optional settings are `MONGODB_DB`, `MATCH_THRESHOLD`, and `MAX_IMAGE_MB` (default 5). First startup downloads the CLIP model if it is not cached and connects to MongoDB.
+Open **http://localhost:8000**. Keep the existing `.env` with `MONGODB_URI`; optional settings are `MONGODB_DB`, `MATCH_THRESHOLD`, and `MAX_IMAGE_MB` (default 5). Startup connects to MongoDB; image matching uses a lightweight local image fingerprint so the app can run on small Render instances.
 
-The UI includes camera capture and file upload, image scanning while recognition runs, a match/no-match dialog, server-side product search and pagination (5 by default), desktop tables, mobile cards, and add/edit/delete dialogs. Product image replacements update their AI embeddings in the same database write. Prices use the stored numeric value; no currency is assumed.
+The UI includes camera capture and file upload, image scanning while recognition runs, a match/no-match dialog, server-side product search and pagination (5 by default), desktop tables, mobile cards, and add/edit/delete dialogs. Product image replacements update their image fingerprints in the same database write. Prices use the stored numeric value; no currency is assumed.
 
 For phone testing, open the machine's LAN address on port 8000. Live browser camera access requires **HTTPS** (or localhost on the same device). On a plain HTTP LAN address, use the **Use device camera** option or file upload. On supported mobile browsers the capture input opens the native camera. Camera permissions and physical device behavior need testing on the target phone.
 

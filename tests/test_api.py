@@ -4,10 +4,9 @@ import io
 import os
 from pathlib import Path
 import re
-import sys
 from types import SimpleNamespace
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from bson import ObjectId
 from fastapi.testclient import TestClient
@@ -16,9 +15,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("tested_app", ROOT / "main.py")
 backend = importlib.util.module_from_spec(spec)
-with patch.dict(os.environ, {"MONGODB_URI": "mongodb://unused"}), patch.dict(
-    sys.modules, {"transformers": MagicMock(), "torch": MagicMock()}
-):
+with patch.dict(os.environ, {"MONGODB_URI": "mongodb://unused"}):
     spec.loader.exec_module(backend)
 
 
@@ -197,6 +194,16 @@ class ProductAPI(unittest.TestCase):
         self.assertEqual(self.client.delete(f"/products/{product_id}").status_code, 200)
         self.assertEqual(self.client.get("/products").json()["total"], 0)
         self.assertEqual(self.client.delete(f"/products/{product_id}").status_code, 404)
+
+    def test_legacy_embedding_is_rebuilt_from_stored_image(self):
+        product_id = self.add()
+        self.collection.items[0].pop("embedding_model")
+        self.collection.items[0]["embedding"] = [0.0, 1.0]
+        response = self.client.post("/getProductByImage", files={"image": ("query.png", picture(), "image/png")})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["product"]["id"], product_id)
+        self.assertEqual(self.collection.items[0]["embedding"], [1.0, 0.0])
+        self.assertEqual(self.collection.items[0]["embedding_model"], backend.EMBEDDING_MODEL)
 
     def test_existing_patch(self):
         product_id = self.add()
